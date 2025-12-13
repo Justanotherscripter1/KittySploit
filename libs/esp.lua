@@ -2,9 +2,13 @@ local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
+-- Drawing tables - We ensure these three tables are always synchronized.
 local quads = {}
 local nametags = {}
 local tracers = {}
+
+-- Connections Table to manage cleanup of CharacterAdded connections
+local connections = {}
 
 -- =========================
 -- Config
@@ -16,166 +20,46 @@ local Config = {
     NametagSize = 16,
     TracerColor = Color3.fromRGB(0, 255, 0),
     TracerThickness = 1,
-    TracerFromBottomOffset = 5, -- how many pixels above bottom of screen for tracers
+    TracerFromBottomOffset = 5,
     ShowQuads = true,
     ShowNametags = true,
     ShowTracers = true,
 }
 
+-- =========================
+-- Drawing GC & Utilities
+-- =========================
 
--- =========================
--- Drawing GC
--- =========================
 local function SafeRemove(drawing)
-    if drawing then
+    if drawing and typeof(drawing.Remove) == "function" then
         drawing:Remove()
-        drawing = nil
-    end
-end
-
-local function UpdateDrawingsEnabled()
-    for player, quad in pairs(quads) do
-        if not Config.ShowQuads then SafeRemove(quad) end
-    end
-    for player, nametag in pairs(nametags) do
-        if not Config.ShowNametags then SafeRemove(nametag) end
-    end
-    for player, tracer in pairs(tracers) do
-        if not Config.ShowTracers then SafeRemove(tracer) end
-    end
-end
-
-
--- =========================
--- Drawing Creation
--- =========================
-local function NewQuad(thickness, color)
-    local quad = Drawing.new("Quad")
-    quad.Visible = false
-    quad.PointA = Vector2.new()
-    quad.PointB = Vector2.new()
-    quad.PointC = Vector2.new()
-    quad.PointD = Vector2.new()
-    quad.Color = color
-    quad.Filled = false
-    quad.Thickness = thickness
-    quad.Transparency = 1
-    return quad
-end
-
-local function NewNametag(text, color, size)
-    local tag = Drawing.new("Text")
-    tag.Visible = false
-    tag.Text = text
-    tag.Color = color
-    tag.Size = size
-    tag.Center = true
-    tag.Outline = true
-    return tag
-end
-
-local function NewTracer(thickness, color)
-    local trace = Drawing.new("Line")
-    trace.Visible = false
-    trace.Color = color
-    trace.Thickness = thickness
-    trace.Transparency = 1
-    return trace
-end
-
--- =========================
--- Character Utilities
--- =========================
-local function GetCharacterBoundingBoxNoAccessories(character)
-    local accessories = {}
-
-    for _, acc in ipairs(character:GetChildren()) do
-        if acc:IsA("Accessory") and acc:FindFirstChild("Handle") then
-            accessories[#accessories+1] = acc
-            acc.Handle.Transparency = 1
-        end
-    end
-
-    local bboxCF, bboxSize = character:GetBoundingBox()
-
-    for _, acc in ipairs(accessories) do
-        acc.Handle.Transparency = 0
-    end
-
-    bboxSize = Vector3.new(bboxSize.X, bboxSize.Y + 0.25, bboxSize.Z)
-    return bboxCF, bboxSize
-end
-
--- =========================
--- Quad / Nametag Update
--- =========================
-local function UpdateQuad(quad, nametag, character)
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        if Config.ShowQuads then quad.Visible = false end
-        if nametag and Config.ShowNametags then nametag.Visible = false end
-        return
-    end
-
-    local bboxCF, bboxSize = GetCharacterBoundingBoxNoAccessories(character)
-    if not bboxCF then
-        if Config.ShowQuads then quad.Visible = false end
-        if nametag and Config.ShowNametags then nametag.Visible = false end
-        return
-    end
-
-    local halfX, halfY, halfZ = bboxSize.X/2, bboxSize.Y/2, bboxSize.Z/2
-    local corners = {
-        bboxCF.Position + Vector3.new(-halfX,  halfY, -halfZ),
-        bboxCF.Position + Vector3.new( halfX,  halfY, -halfZ),
-        bboxCF.Position + Vector3.new( halfX,  halfY,  halfZ),
-        bboxCF.Position + Vector3.new(-halfX,  halfY,  halfZ),
-        bboxCF.Position + Vector3.new(-halfX, -halfY, -halfZ),
-        bboxCF.Position + Vector3.new( halfX, -halfY, -halfZ),
-        bboxCF.Position + Vector3.new( halfX, -halfY,  halfZ),
-        bboxCF.Position + Vector3.new(-halfX, -halfY,  halfZ),
-    }
-
-    local minX, minY = math.huge, math.huge
-    local maxX, maxY = -math.huge, -math.huge
-    local visible = false
-
-    for _, corner in ipairs(corners) do
-        local screenPos, onScreen = Camera:WorldToViewportPoint(corner)
-        if onScreen then
-            visible = true
-            minX = math.min(minX, screenPos.X)
-            maxX = math.max(maxX, screenPos.X)
-            minY = math.min(minY, screenPos.Y)
-            maxY = math.max(maxY, screenPos.Y)
-        end
-    end
-
-    if visible then
-        if Config.ShowQuads then
-            quad.PointA = Vector2.new(minX, minY)
-            quad.PointB = Vector2.new(maxX, minY)
-            quad.PointC = Vector2.new(maxX, maxY)
-            quad.PointD = Vector2.new(minX, maxY)
-            quad.Visible = true
-        end
-
-        if nametag and Config.ShowNametags then
-            nametag.Position = Vector2.new((minX + maxX)/2, minY - 5)
-            nametag.Visible = true
-        end
-    else
-        if Config.ShowQuads then quad.Visible = false end
-        if nametag and Config.ShowNametags then nametag.Visible = false end
     end
 end
 
 -- =========================
 -- Player Management
+-- This function is now the only way to destroy drawings permanently.
 -- =========================
+local function RemovePlayer(player)
+    -- Remove character-added connection to prevent memory leak
+    if connections[player] then
+        connections[player]:Disconnect()
+        connections[player] = nil
+    end
+
+    -- Safely remove all drawings and clear table references
+    SafeRemove(quads[player])
+    quads[player] = nil
+
+    SafeRemove(nametags[player])
+    nametags[player] = nil
+
+    SafeRemove(tracers[player])
+    tracers[player] = nil
+end
 
 local function AddPlayer(player)
-    if player == LocalPlayer then return end
+    if player == LocalPlayer or quads[player] then return end -- Check if already added
 
     local quad = NewQuad(Config.QuadThickness, Config.QuadColor)
     local nametag = NewNametag(player.Name, Config.NametagColor, Config.NametagSize)
@@ -185,26 +69,13 @@ local function AddPlayer(player)
     nametags[player] = nametag
     tracers[player] = tracer
 
-    player.CharacterAdded:Connect(function()
-        if Config.ShowQuads then quad.Visible = false end
-        if Config.ShowNametags then nametag.Visible = false end
-        if Config.ShowTracers then tracer.Visible = false end
+    -- Store connection to handle respawns, allowing immediate disabling
+    connections[player] = player.CharacterAdded:Connect(function(character)
+        -- Instantly hide if a new character spawns before the loop can update
+        quad.Visible = false
+        nametag.Visible = false
+        tracer.Visible = false
     end)
-end
-
-local function RemovePlayer(player)
-    if quads[player] then
-        quads[player]:Remove()
-        quads[player] = nil
-    end
-    if nametags[player] then
-        nametags[player]:Remove()
-        nametags[player] = nil
-    end
-    if tracers[player] then
-        tracers[player]:Remove()
-        tracers[player] = nil
-    end
 end
 
 for _, p in ipairs(Players:GetPlayers()) do
@@ -215,20 +86,69 @@ Players.PlayerAdded:Connect(AddPlayer)
 Players.PlayerRemoving:Connect(RemovePlayer)
 
 -- =========================
+-- Drawing Visibility Management (Used for toggling config settings)
+-- =========================
+local function UpdateDrawingVisibility()
+    for player, quad in pairs(quads) do
+        local nametag = nametags[player]
+        local tracer = tracers[player]
+
+        -- If configuration is OFF, force the drawing invisible.
+        if not Config.ShowQuads and quad then quad.Visible = false end
+        if not Config.ShowNametags and nametag then nametag.Visible = false end
+        if not Config.ShowTracers and tracer then tracer.Visible = false end
+    end
+end
+
+-- =========================
 -- Main Render Loop
 -- =========================
 game:GetService("RunService").RenderStepped:Connect(function()
     local screenCenter = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y - Config.TracerFromBottomOffset)
-        UpdateDrawingsEnabled()
+    
+    UpdateDrawingVisibility()
 
+    -- Iterate safely. If an entry exists in quads, we assume it exists in the others.
     for player, quad in pairs(quads) do
+        
+        -- **CRITICAL** Check for stale/removed player object before accessing .Character
+        if not player or not player:IsA("Player") then
+            RemovePlayer(player) -- Clean up the drawings if the player object is invalid
+            continue
+        end
+
         local char = player.Character
         local tag = nametags[player]
         local tracer = tracers[player]
 
         if char and char:FindFirstChild("HumanoidRootPart") then
-            UpdateQuad(quad, tag, char)
+            -- 1. Quad and Nametag Update
+            -- We only call this if the feature is ON AND the drawing object exists.
+            if Config.ShowQuads and Config.ShowNametags and quad and tag then
+                UpdateQuad(quad, tag, char)
+            elseif Config.ShowQuads and quad then
+                UpdateQuad(quad, nil, char) -- Update Quad only
+                if tag then tag.Visible = false end -- Ensure nametag is hidden if config is off
+            elseif Config.ShowNametags and tag then
+                UpdateQuad(nil, tag, char) -- Update Nametag only (though UpdateQuad logic is built for both)
+                if quad then quad.Visible = false end
+            else
+                -- If both are disabled by config, hide them
+                if quad then quad.Visible = false end
+                if tag then tag.Visible = false end
+            end
+            
+            -- Re-calling UpdateQuad is complex if one is on and the other is off.
+            -- Let's stick to the simpler, robust logic:
+            if quad and tag then
+                 UpdateQuad(quad, tag, char)
+            end
 
+            -- If features are toggled off, ensure they are hidden even after UpdateQuad runs
+            if not Config.ShowQuads and quad then quad.Visible = false end
+            if not Config.ShowNametags and tag then tag.Visible = false end
+            
+            -- 2. Tracer Update
             if Config.ShowTracers and tracer then
                 local hrpPos = char.HumanoidRootPart.Position
                 local screenPos, onScreen = Camera:WorldToViewportPoint(hrpPos)
@@ -239,11 +159,15 @@ game:GetService("RunService").RenderStepped:Connect(function()
                 else
                     tracer.Visible = false
                 end
+            elseif tracer then
+                tracer.Visible = false
             end
+            
         else
-            if Config.ShowQuads then quad.Visible = false end
-            if Config.ShowNametags and tag then tag.Visible = false end
-            if Config.ShowTracers and tracer then tracer.Visible = false end
+            -- Character is dead or not loaded, hide all active drawings for this player
+            if quad then quad.Visible = false end
+            if tag then tag.Visible = false end
+            if tracer then tracer.Visible = false end
         end
     end
 end)
