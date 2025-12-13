@@ -81,7 +81,7 @@ end
 -- =========================
 -- Quad / Nametag Update
 -- =========================
-local function UpdateQuad(quad, nametag, character)
+local function UpdateDrawings(quad, nametag, tracer, character, screenCenter)
     -- Bail early if nothing is enabled
     if not (Config.ShowQuads or Config.ShowNametags or Config.ShowTracers) then
         if quad then quad.Visible = false end
@@ -99,66 +99,67 @@ local function UpdateQuad(quad, nametag, character)
     end
 
     -- Bounding box for quads/nametags
-    local bboxCF, bboxSize = GetCharacterBoundingBoxNoAccessories(character)
-    if bboxCF then
-        local halfX, halfY, halfZ = bboxSize.X/2, bboxSize.Y/2, bboxSize.Z/2
-        local corners = {
-            bboxCF.Position + Vector3.new(-halfX,  halfY, -halfZ),
-            bboxCF.Position + Vector3.new( halfX,  halfY, -halfZ),
-            bboxCF.Position + Vector3.new( halfX,  halfY,  halfZ),
-            bboxCF.Position + Vector3.new(-halfX,  halfY,  halfZ),
-            bboxCF.Position + Vector3.new(-halfX, -halfY, -halfZ),
-            bboxCF.Position + Vector3.new( halfX, -halfY, -halfZ),
-            bboxCF.Position + Vector3.new( halfX, -halfY,  halfZ),
-            bboxCF.Position + Vector3.new(-halfX, -halfY,  halfZ),
-        }
+    if Config.ShowQuads or Config.ShowNametags then
+        local bboxCF, bboxSize = GetCharacterBoundingBoxNoAccessories(character)
+        if bboxCF then
+            local halfX, halfY, halfZ = bboxSize.X/2, bboxSize.Y/2, bboxSize.Z/2
+            local corners = {
+                bboxCF.Position + Vector3.new(-halfX,  halfY, -halfZ),
+                bboxCF.Position + Vector3.new( halfX,  halfY, -halfZ),
+                bboxCF.Position + Vector3.new( halfX,  halfY,  halfZ),
+                bboxCF.Position + Vector3.new(-halfX,  halfY,  halfZ),
+                bboxCF.Position + Vector3.new(-halfX, -halfY, -halfZ),
+                bboxCF.Position + Vector3.new( halfX, -halfY, -halfZ),
+                bboxCF.Position + Vector3.new( halfX, -halfY,  halfZ),
+                bboxCF.Position + Vector3.new(-halfX, -halfY,  halfZ),
+            }
 
-        local minX, minY = math.huge, math.huge
-        local maxX, maxY = -math.huge, -math.huge
-        local visible = false
+            local minX, minY = math.huge, math.huge
+            local maxX, maxY = -math.huge, -math.huge
+            local visible = false
 
-        for _, corner in ipairs(corners) do
-            local screenPos, onScreen = Camera:WorldToViewportPoint(corner)
-            if onScreen then
-                visible = true
-                minX = math.min(minX, screenPos.X)
-                maxX = math.max(maxX, screenPos.X)
-                minY = math.min(minY, screenPos.Y)
-                maxY = math.max(maxY, screenPos.Y)
-            end
-        end
-
-        if visible then
-            if Config.ShowQuads and quad then
-                quad.PointA = Vector2.new(minX, minY)
-                quad.PointB = Vector2.new(maxX, minY)
-                quad.PointC = Vector2.new(maxX, maxY)
-                quad.PointD = Vector2.new(minX, maxY)
-                quad.Visible = true
-            elseif quad then
-                quad.Visible = false
+            for _, corner in ipairs(corners) do
+                local screenPos, onScreen = Camera:WorldToViewportPoint(corner)
+                if onScreen then
+                    visible = true
+                    minX = math.min(minX, screenPos.X)
+                    maxX = math.max(maxX, screenPos.X)
+                    minY = math.min(minY, screenPos.Y)
+                    maxY = math.max(maxY, screenPos.Y)
+                end
             end
 
-            if Config.ShowNametags and nametag then
-                nametag.Position = Vector2.new((minX + maxX)/2, minY - 5)
-                nametag.Visible = true
-            elseif nametag then
-                nametag.Visible = false
+            if visible then
+                if Config.ShowQuads and quad then
+                    quad.PointA = Vector2.new(minX, minY)
+                    quad.PointB = Vector2.new(maxX, minY)
+                    quad.PointC = Vector2.new(maxX, maxY)
+                    quad.PointD = Vector2.new(minX, maxY)
+                    quad.Visible = true
+                elseif quad then
+                    quad.Visible = false
+                end
+
+                if Config.ShowNametags and nametag then
+                    nametag.Position = Vector2.new((minX + maxX)/2, minY - 5)
+                    nametag.Visible = true
+                elseif nametag then
+                    nametag.Visible = false
+                end
+            else
+                if quad then quad.Visible = false end
+                if nametag then nametag.Visible = false end
             end
         else
             if quad then quad.Visible = false end
             if nametag then nametag.Visible = false end
         end
-    else
-        if quad then quad.Visible = false end
-        if nametag then nametag.Visible = false end
     end
 
     -- Tracer update
     if tracer then
         if Config.ShowTracers then
-            local hrpPos = hrp.Position
-            local screenPos, onScreen = Camera:WorldToViewportPoint(hrpPos)
+            local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
             if onScreen then
                 tracer.From = screenCenter
                 tracer.To = Vector2.new(screenPos.X, screenPos.Y)
@@ -245,7 +246,7 @@ game:GetService("RunService").RenderStepped:Connect(function()
         local tracer = tracers[player]
 
         if char and char:FindFirstChild("HumanoidRootPart") then
-            UpdateQuad(quad, tag, char)
+            UpdateDrawings(quad, tag, tracer, char, screenCenter)
 
             if Config.ShowTracers and tracer then
                 local hrpPos = char.HumanoidRootPart.Position
