@@ -83,9 +83,10 @@ end
 -- =========================
 local function UpdateQuad(quad, nametag, character)
     -- Bail early if nothing is enabled
-    if not (Config.ShowQuads or Config.ShowNametags) then
+    if not (Config.ShowQuads or Config.ShowNametags or Config.ShowTracers) then
         if quad then quad.Visible = false end
         if nametag then nametag.Visible = false end
+        if tracer then tracer.Visible = false end
         return
     end
 
@@ -93,73 +94,94 @@ local function UpdateQuad(quad, nametag, character)
     if not hrp then
         if quad then quad.Visible = false end
         if nametag then nametag.Visible = false end
+        if tracer then tracer.Visible = false end
         return
     end
 
+    -- Bounding box for quads/nametags
     local bboxCF, bboxSize = GetCharacterBoundingBoxNoAccessories(character)
-    if not bboxCF then
-        if quad then quad.Visible = false end
-        if nametag then nametag.Visible = false end
-        return
-    end
+    if bboxCF then
+        local halfX, halfY, halfZ = bboxSize.X/2, bboxSize.Y/2, bboxSize.Z/2
+        local corners = {
+            bboxCF.Position + Vector3.new(-halfX,  halfY, -halfZ),
+            bboxCF.Position + Vector3.new( halfX,  halfY, -halfZ),
+            bboxCF.Position + Vector3.new( halfX,  halfY,  halfZ),
+            bboxCF.Position + Vector3.new(-halfX,  halfY,  halfZ),
+            bboxCF.Position + Vector3.new(-halfX, -halfY, -halfZ),
+            bboxCF.Position + Vector3.new( halfX, -halfY, -halfZ),
+            bboxCF.Position + Vector3.new( halfX, -halfY,  halfZ),
+            bboxCF.Position + Vector3.new(-halfX, -halfY,  halfZ),
+        }
 
-    local halfX, halfY, halfZ = bboxSize.X/2, bboxSize.Y/2, bboxSize.Z/2
-    local corners = {
-        bboxCF.Position + Vector3.new(-halfX,  halfY, -halfZ),
-        bboxCF.Position + Vector3.new( halfX,  halfY, -halfZ),
-        bboxCF.Position + Vector3.new( halfX,  halfY,  halfZ),
-        bboxCF.Position + Vector3.new(-halfX,  halfY,  halfZ),
-        bboxCF.Position + Vector3.new(-halfX, -halfY, -halfZ),
-        bboxCF.Position + Vector3.new( halfX, -halfY, -halfZ),
-        bboxCF.Position + Vector3.new( halfX, -halfY,  halfZ),
-        bboxCF.Position + Vector3.new(-halfX, -halfY,  halfZ),
-    }
+        local minX, minY = math.huge, math.huge
+        local maxX, maxY = -math.huge, -math.huge
+        local visible = false
 
-    local minX, minY = math.huge, math.huge
-    local maxX, maxY = -math.huge, -math.huge
-    local visible = false
-
-    for _, corner in ipairs(corners) do
-        local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(corner)
-        if onScreen then
-            visible = true
-            minX = math.min(minX, screenPos.X)
-            maxX = math.max(maxX, screenPos.X)
-            minY = math.min(minY, screenPos.Y)
-            maxY = math.max(maxY, screenPos.Y)
-        end
-    end
-
-    if visible then
-        if Config.ShowQuads and quad then
-            quad.PointA = Vector2.new(minX, minY)
-            quad.PointB = Vector2.new(maxX, minY)
-            quad.PointC = Vector2.new(maxX, maxY)
-            quad.PointD = Vector2.new(minX, maxY)
-            quad.Visible = true
-        elseif quad then
-            quad.Visible = false
+        for _, corner in ipairs(corners) do
+            local screenPos, onScreen = Camera:WorldToViewportPoint(corner)
+            if onScreen then
+                visible = true
+                minX = math.min(minX, screenPos.X)
+                maxX = math.max(maxX, screenPos.X)
+                minY = math.min(minY, screenPos.Y)
+                maxY = math.max(maxY, screenPos.Y)
+            end
         end
 
-        if Config.ShowNametags and nametag then
-            nametag.Position = Vector2.new((minX + maxX)/2, minY - 5)
-            nametag.Visible = true
-        elseif nametag then
-            nametag.Visible = false
+        if visible then
+            if Config.ShowQuads and quad then
+                quad.PointA = Vector2.new(minX, minY)
+                quad.PointB = Vector2.new(maxX, minY)
+                quad.PointC = Vector2.new(maxX, maxY)
+                quad.PointD = Vector2.new(minX, maxY)
+                quad.Visible = true
+            elseif quad then
+                quad.Visible = false
+            end
+
+            if Config.ShowNametags and nametag then
+                nametag.Position = Vector2.new((minX + maxX)/2, minY - 5)
+                nametag.Visible = true
+            elseif nametag then
+                nametag.Visible = false
+            end
+        else
+            if quad then quad.Visible = false end
+            if nametag then nametag.Visible = false end
         end
     else
         if quad then quad.Visible = false end
         if nametag then nametag.Visible = false end
     end
-    --updates
-    if quad then quad.Color = Config.QuadColor end
-if nametag then nametag.Color = Config.NametagColor end
-if tracer then tracer.Color = Config.TracerColor end
-if quad then quad.Thickness = Config.QuadThickness end
-if tracer then tracer.Thickness = Config.TracerThickness end
-if nametag then nametag.Size = Config.NametagSize end
 
-    
+    -- Tracer update
+    if tracer then
+        if Config.ShowTracers then
+            local hrpPos = hrp.Position
+            local screenPos, onScreen = Camera:WorldToViewportPoint(hrpPos)
+            if onScreen then
+                tracer.From = screenCenter
+                tracer.To = Vector2.new(screenPos.X, screenPos.Y)
+                tracer.Visible = true
+            else
+                tracer.Visible = false
+            end
+            tracer.Color = Config.TracerColor
+            tracer.Thickness = Config.TracerThickness
+        else
+            tracer.Visible = false
+        end
+    end
+
+    -- Always update quad/nametag appearance to respect config
+    if quad then
+        quad.Color = Config.QuadColor
+        quad.Thickness = Config.QuadThickness
+    end
+    if nametag then
+        nametag.Color = Config.NametagColor
+        nametag.Size = Config.NametagSize
+    end
 end
 
 -- =========================
