@@ -18,6 +18,30 @@ local Config = {
     ShowTracers = true,
 }
 
+
+-- =========================
+-- Drawing GC
+-- =========================
+local function SafeRemove(drawing)
+    if drawing then
+        drawing:Remove()
+        drawing = nil
+    end
+end
+
+local function UpdateDrawingsEnabled()
+    for player, quad in pairs(quads) do
+        if not Config.ShowQuads then SafeRemove(quad) end
+    end
+    for player, nametag in pairs(nametags) do
+        if not Config.ShowNametags then SafeRemove(nametag) end
+    end
+    for player, tracer in pairs(tracers) do
+        if not Config.ShowTracers then SafeRemove(tracer) end
+    end
+end
+
+
 -- =========================
 -- Drawing Creation
 -- =========================
@@ -194,6 +218,7 @@ Players.PlayerRemoving:Connect(RemovePlayer)
 -- =========================
 game:GetService("RunService").RenderStepped:Connect(function()
     local screenCenter = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y - Config.TracerFromBottomOffset)
+        UpdateDrawingsEnabled()
 
     for player, quad in pairs(quads) do
         local char = player.Character
