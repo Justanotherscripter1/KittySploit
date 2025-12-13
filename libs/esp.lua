@@ -2,6 +2,10 @@ local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
+local quads = {}
+local nametags = {}
+local tracers = {}
+
 -- =========================
 -- Config
 -- =========================
@@ -169,9 +173,6 @@ end
 -- =========================
 -- Player Management
 -- =========================
-local quads = {}
-local nametags = {}
-local tracers = {}
 
 local function AddPlayer(player)
     if player == LocalPlayer then return end
