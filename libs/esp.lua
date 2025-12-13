@@ -151,6 +151,15 @@ local function UpdateQuad(quad, nametag, character)
         if quad then quad.Visible = false end
         if nametag then nametag.Visible = false end
     end
+    --updates
+    if quad then quad.Color = Config.QuadColor end
+if nametag then nametag.Color = Config.NametagColor end
+if tracer then tracer.Color = Config.TracerColor end
+if quad then quad.Thickness = Config.QuadThickness end
+if tracer then tracer.Thickness = Config.TracerThickness end
+if nametag then nametag.Size = Config.NametagSize end
+
+    
 end
 
 -- =========================
