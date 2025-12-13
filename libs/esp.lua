@@ -82,17 +82,24 @@ end
 -- Quad / Nametag Update
 -- =========================
 local function UpdateQuad(quad, nametag, character)
+    -- Bail early if nothing is enabled
+    if not (Config.ShowQuads or Config.ShowNametags) then
+        if quad then quad.Visible = false end
+        if nametag then nametag.Visible = false end
+        return
+    end
+
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then
-        if Config.ShowQuads then quad.Visible = false end
-        if nametag and Config.ShowNametags then nametag.Visible = false end
+        if quad then quad.Visible = false end
+        if nametag then nametag.Visible = false end
         return
     end
 
     local bboxCF, bboxSize = GetCharacterBoundingBoxNoAccessories(character)
     if not bboxCF then
-        if Config.ShowQuads then quad.Visible = false end
-        if nametag and Config.ShowNametags then nametag.Visible = false end
+        if quad then quad.Visible = false end
+        if nametag then nametag.Visible = false end
         return
     end
 
@@ -113,7 +120,7 @@ local function UpdateQuad(quad, nametag, character)
     local visible = false
 
     for _, corner in ipairs(corners) do
-        local screenPos, onScreen = Camera:WorldToViewportPoint(corner)
+        local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(corner)
         if onScreen then
             visible = true
             minX = math.min(minX, screenPos.X)
@@ -124,21 +131,25 @@ local function UpdateQuad(quad, nametag, character)
     end
 
     if visible then
-        if Config.ShowQuads then
+        if Config.ShowQuads and quad then
             quad.PointA = Vector2.new(minX, minY)
             quad.PointB = Vector2.new(maxX, minY)
             quad.PointC = Vector2.new(maxX, maxY)
             quad.PointD = Vector2.new(minX, maxY)
             quad.Visible = true
+        elseif quad then
+            quad.Visible = false
         end
 
-        if nametag and Config.ShowNametags then
+        if Config.ShowNametags and nametag then
             nametag.Position = Vector2.new((minX + maxX)/2, minY - 5)
             nametag.Visible = true
+        elseif nametag then
+            nametag.Visible = false
         end
     else
-        if Config.ShowQuads then quad.Visible = false end
-        if nametag and Config.ShowNametags then nametag.Visible = false end
+        if quad then quad.Visible = false end
+        if nametag then nametag.Visible = false end
     end
 end
 
@@ -197,9 +208,6 @@ game:GetService("RunService").RenderStepped:Connect(function()
 
 
     for player, quad in pairs(quads) do
-            if quad then quad.Visible = Config.ShowQuads end
-if tag then tag.Visible = Config.ShowNametags end
-if tracer then tracer.Visible = Config.ShowTracers end
 
         local char = player.Character
         local tag = nametags[player]
