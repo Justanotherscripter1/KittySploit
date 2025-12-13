@@ -194,13 +194,13 @@ Players.PlayerRemoving:Connect(RemovePlayer)
 -- =========================
 game:GetService("RunService").RenderStepped:Connect(function()
     local screenCenter = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y - Config.TracerFromBottomOffset)
-        
-if quad then quad.Visible = Config.ShowQuads end
-if tag then tag.Visible = Config.ShowNametags end
-if tracer then tracer.Visible = Config.ShowTracers end
 
 
     for player, quad in pairs(quads) do
+            if quad then quad.Visible = Config.ShowQuads end
+if tag then tag.Visible = Config.ShowNametags end
+if tracer then tracer.Visible = Config.ShowTracers end
+
         local char = player.Character
         local tag = nametags[player]
         local tracer = tracers[player]
