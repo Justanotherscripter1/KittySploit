@@ -1,4 +1,5 @@
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
@@ -16,239 +17,225 @@ local Config = {
     NametagSize = 16,
     TracerColor = Color3.fromRGB(0, 255, 0),
     TracerThickness = 1,
-    TracerFromBottomOffset = 5, -- how many pixels above bottom of screen for tracers
+    TracerFromBottomOffset = 50, -- pixels from bottom of screen
     ShowQuads = true,
     ShowNametags = true,
     ShowTracers = true,
 }
 
-
--- =========================
--- Drawing GC
--- =========================
-local function SafeRemove(drawing)
-    if drawing then
-        drawing:Remove()
-        drawing = nil
-    end
-end
-
-local function UpdateDrawingsEnabled()
-    for player, quad in pairs(quads) do
-        if not Config.ShowQuads then SafeRemove(quad) end
-    end
-    for player, nametag in pairs(nametags) do
-        if not Config.ShowNametags then SafeRemove(nametag) end
-    end
-    for player, tracer in pairs(tracers) do
-        if not Config.ShowTracers then SafeRemove(tracer) end
-    end
-end
-
-
 -- =========================
 -- Drawing Creation
 -- =========================
-local function NewQuad(thickness, color)
+local function NewQuad()
     local quad = Drawing.new("Quad")
     quad.Visible = false
-    quad.PointA = Vector2.new()
-    quad.PointB = Vector2.new()
-    quad.PointC = Vector2.new()
-    quad.PointD = Vector2.new()
-    quad.Color = color
-    quad.Filled = false
-    quad.Thickness = thickness
+    quad.Color = Config.QuadColor
+    quad.Thickness = Config.QuadThickness
     quad.Transparency = 1
+    quad.Filled = false
     return quad
 end
 
-local function NewNametag(text, color, size)
+local function NewNametag()
     local tag = Drawing.new("Text")
     tag.Visible = false
-    tag.Text = text
-    tag.Color = color
-    tag.Size = size
+    tag.Color = Config.NametagColor
+    tag.Size = Config.NametagSize
     tag.Center = true
     tag.Outline = true
+    tag.Font = 2
     return tag
 end
 
-local function NewTracer(thickness, color)
-    local trace = Drawing.new("Line")
-    trace.Visible = false
-    trace.Color = color
-    trace.Thickness = thickness
-    trace.Transparency = 1
-    return trace
+local function NewTracer()
+    local line = Drawing.new("Line")
+    line.Visible = false
+    line.Color = Config.TracerColor
+    line.Thickness = Config.TracerThickness
+    line.Transparency = 1
+    return line
 end
 
 -- =========================
--- Character Utilities
+-- Better Bounding Box (avoids modifying accessories)
 -- =========================
-local function GetCharacterBoundingBoxNoAccessories(character)
-    local accessories = {}
+local function GetBoundingBox(character)
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if not root then return nil, nil end
 
-    for _, acc in ipairs(character:GetChildren()) do
-        if acc:IsA("Accessory") and acc:FindFirstChild("Handle") then
-            accessories[#accessories+1] = acc
-            acc.Handle.Transparency = 1
+    local parts = {}
+    for _, part in ipairs(character:GetChildren()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            table.insert(parts, part)
         end
     end
 
-    local bboxCF, bboxSize = character:GetBoundingBox()
-
-    for _, acc in ipairs(accessories) do
-        acc.Handle.Transparency = 0
+    if #parts == 0 then
+        -- Fallback to approximate size
+        return root.CFrame, Vector3.new(4, 6, 3)
     end
 
-    bboxSize = Vector3.new(bboxSize.X, bboxSize.Y + 0.25, bboxSize.Z)
-    return bboxCF, bboxSize
+    local min, max = Vector3.new(math.huge, math.huge, math.huge), Vector3.new(-math.huge, -math.huge, -math.huge)
+    for _, part in ipairs(parts) do
+        local cf, size = part.CFrame, part.Size
+        local corners = {
+            cf * CFrame.new(-size.X/2, -size.Y/2, -size.Z/2).Position,
+            cf * CFrame.new( size.X/2, -size.Y/2, -size.Z/2).Position,
+            cf * CFrame.new( size.X/2,  size.Y/2, -size.Z/2).Position,
+            cf * CFrame.new(-size.X/2,  size.Y/2, -size.Z/2).Position,
+            cf * CFrame.new(-size.X/2, -size.Y/2,  size.Z/2).Position,
+            cf * CFrame.new( size.X/2, -size.Y/2,  size.Z/2).Position,
+            cf * CFrame.new( size.X/2,  size.Y/2,  size.Z/2).Position,
+            cf * CFrame.new(-size.X/2,  size.Y/2,  size.Z/2).Position,
+        }
+        for _, corner in ipairs(corners) do
+            min = min:Min(corner)
+            max = max:Max(corner)
+        end
+    end
+
+    local center = (min + max) / 2
+    local size = max - min
+    return CFrame.new(center), Vector3.new(size.X, size.Y + 0.5, size.Z) -- slight height boost
 end
 
 -- =========================
--- Quad / Nametag Update
+-- Update Visuals
 -- =========================
-local function UpdateQuad(quad, nametag, character)
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        if Config.ShowQuads then quad.Visible = false end
-        if nametag and Config.ShowNametags then nametag.Visible = false end
+local function UpdatePlayerVisuals(player)
+    local quad = quads[player]
+    local nametag = nametags[player]
+    local tracer = tracers[player]
+    local character = player.Character
+
+    if not character or not character:FindFirstChild("HumanoidRootPart") then
+        if quad then quad.Visible = false end
+        if nametag then nametag.Visible = false end
+        if tracer then tracer.Visible = false end
         return
     end
 
-    local bboxCF, bboxSize = GetCharacterBoundingBoxNoAccessories(character)
-    if not bboxCF then
-        if Config.ShowQuads then quad.Visible = false end
-        if nametag and Config.ShowNametags then nametag.Visible = false end
+    local cf, size = GetBoundingBox(character)
+    if not cf then
+        quad.Visible = false
+        nametag.Visible = false
+        tracer.Visible = false
         return
     end
 
-    local halfX, halfY, halfZ = bboxSize.X/2, bboxSize.Y/2, bboxSize.Z/2
+    local half = size / 2
     local corners = {
-        bboxCF.Position + Vector3.new(-halfX,  halfY, -halfZ),
-        bboxCF.Position + Vector3.new( halfX,  halfY, -halfZ),
-        bboxCF.Position + Vector3.new( halfX,  halfY,  halfZ),
-        bboxCF.Position + Vector3.new(-halfX,  halfY,  halfZ),
-        bboxCF.Position + Vector3.new(-halfX, -halfY, -halfZ),
-        bboxCF.Position + Vector3.new( halfX, -halfY, -halfZ),
-        bboxCF.Position + Vector3.new( halfX, -halfY,  halfZ),
-        bboxCF.Position + Vector3.new(-halfX, -halfY,  halfZ),
+        cf.Position + Vector3.new(-half.X,  half.Y, -half.Z),
+        cf.Position + Vector3.new( half.X,  half.Y, -half.Z),
+        cf.Position + Vector3.new( half.X,  half.Y,  half.Z),
+        cf.Position + Vector3.new(-half.X,  half.Y,  half.Z),
+        cf.Position + Vector3.new(-half.X, -half.Y, -half.Z),
+        cf.Position + Vector3.new( half.X, -half.Y, -half.Z),
+        cf.Position + Vector3.new( half.X, -half.Y,  half.Z),
+        cf.Position + Vector3.new(-half.X, -half.Y,  half.Z),
     }
 
+    local screenPoints = {}
+    local visibleCount = 0
     local minX, minY = math.huge, math.huge
     local maxX, maxY = -math.huge, -math.huge
-    local visible = false
 
-    for _, corner in ipairs(corners) do
-        local screenPos, onScreen = Camera:WorldToViewportPoint(corner)
+    for _, worldPos in ipairs(corners) do
+        local screenPos, onScreen = Camera:WorldToViewportPoint(worldPos)
         if onScreen then
-            visible = true
+            visibleCount += 1
             minX = math.min(minX, screenPos.X)
-            maxX = math.max(maxX, screenPos.X)
             minY = math.min(minY, screenPos.Y)
+            maxX = math.max(maxX, screenPos.X)
             maxY = math.max(maxY, screenPos.Y)
+            table.insert(screenPoints, screenPos)
         end
     end
 
-    if visible then
-        if Config.ShowQuads then
-            quad.PointA = Vector2.new(minX, minY)
-            quad.PointB = Vector2.new(maxX, minY)
-            quad.PointC = Vector2.new(maxX, maxY)
-            quad.PointD = Vector2.new(minX, maxY)
-            quad.Visible = true
-        end
+    local isVisible = visibleCount > 0
 
-        if nametag and Config.ShowNametags then
-            nametag.Position = Vector2.new((minX + maxX)/2, minY - 5)
-            nametag.Visible = true
+    -- Quad
+    if Config.ShowQuads and isVisible and quad then
+        quad.PointA = Vector2.new(minX, minY)
+        quad.PointB = Vector2.new(maxX, minY)
+        quad.PointC = Vector2.new(maxX, maxY)
+        quad.PointD = Vector2.new(minX, maxY)
+        quad.Visible = true
+    elseif quad then
+        quad.Visible = false
+    end
+
+    -- Nametag
+    if Config.ShowNametags and isVisible and nametag then
+        nametag.Text = player.DisplayName or player.Name
+        nametag.Position = Vector2.new((minX + maxX) / 2, minY - 20) -- above head
+        nametag.Visible = true
+    elseif nametag then
+        nametag.Visible = false
+    end
+
+    -- Tracer
+    if Config.ShowTracers and tracer then
+        local rootPos = character.HumanoidRootPart.Position
+        local screenPos, onScreen = Camera:WorldToViewportPoint(rootPos + Vector3.new(0, -2, 0)) -- slightly lower
+        local tracerStart = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y - Config.TracerFromBottomOffset)
+
+        if onScreen then
+            tracer.From = tracerStart
+            tracer.To = Vector2.new(screenPos.X, screenPos.Y)
+            tracer.Visible = true
+        else
+            tracer.Visible = false
         end
-    else
-        if Config.ShowQuads then quad.Visible = false end
-        if nametag and Config.ShowNametags then nametag.Visible = false end
+    elseif tracer then
+        tracer.Visible = false
     end
 end
 
 -- =========================
 -- Player Management
 -- =========================
-
 local function AddPlayer(player)
     if player == LocalPlayer then return end
 
-    local quad = NewQuad(Config.QuadThickness, Config.QuadColor)
-    local nametag = NewNametag(player.Name, Config.NametagColor, Config.NametagSize)
-    local tracer = NewTracer(Config.TracerThickness, Config.TracerColor)
+    quads[player] = NewQuad()
+    nametags[player] = NewNametag()
+    tracers[player] = NewTracer()
 
-    quads[player] = quad
-    nametags[player] = nametag
-    tracers[player] = tracer
-
+    -- Handle character respawn
     player.CharacterAdded:Connect(function()
-        if Config.ShowQuads then quad.Visible = false end
-        if Config.ShowNametags then nametag.Visible = false end
-        if Config.ShowTracers then tracer.Visible = false end
+        -- Reset visibility
+        if quads[player] then quads[player].Visible = false end
+        if nametags[player] then nametags[player].Visible = false end
+        if tracers[player] then tracers[player].Visible = false end
     end)
 end
 
 local function RemovePlayer(player)
-    if quads[player] then
-        quads[player]:Remove()
-        quads[player] = nil
-    end
-    if nametags[player] then
-        nametags[player]:Remove()
-        nametags[player] = nil
-    end
-    if tracers[player] then
-        tracers[player]:Remove()
-        tracers[player] = nil
-    end
+    if quads[player] then quads[player]:Remove() quads[player] = nil end
+    if nametags[player] then nametags[player]:Remove() nametags[player] = nil end
+    if tracers[player] then tracers[player]:Remove() tracers[player] = nil end
 end
 
-for _, p in ipairs(Players:GetPlayers()) do
-    AddPlayer(p)
+-- Initial players
+for _, player in ipairs(Players:GetPlayers()) do
+    AddPlayer(player)
 end
 
 Players.PlayerAdded:Connect(AddPlayer)
 Players.PlayerRemoving:Connect(RemovePlayer)
 
 -- =========================
--- Main Render Loop
+-- Render Loop
 -- =========================
-game:GetService("RunService").RenderStepped:Connect(function()
-    local screenCenter = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y - Config.TracerFromBottomOffset)
-        UpdateDrawingsEnabled()
-
-    for player, quad in pairs(quads) do
-        local char = player.Character
-        local tag = nametags[player]
-        local tracer = tracers[player]
-
-        if char and char:FindFirstChild("HumanoidRootPart") then
-            UpdateQuad(quad, tag, char)
-
-            if Config.ShowTracers and tracer then
-                local hrpPos = char.HumanoidRootPart.Position
-                local screenPos, onScreen = Camera:WorldToViewportPoint(hrpPos)
-                if onScreen then
-                    tracer.From = screenCenter
-                    tracer.To = Vector2.new(screenPos.X, screenPos.Y)
-                    tracer.Visible = true
-                else
-                    tracer.Visible = false
-                end
-            end
+RunService.RenderStepped:Connect(function()
+    for player, _ in pairs(quads) do
+        if player.Parent then -- still in game
+            UpdatePlayerVisuals(player)
         else
-            if Config.ShowQuads then quad.Visible = false end
-            if Config.ShowNametags and tag then tag.Visible = false end
-            if Config.ShowTracers and tracer then tracer.Visible = false end
+            RemovePlayer(player)
         end
     end
 end)
 
--- =========================
--- loadstring return
--- =========================
 return Config
