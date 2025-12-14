@@ -95,12 +95,14 @@ end
 -- =========================
 local function UpdateDrawings(quad, nametag, tracer, healthbar, character, screenCenter)
     -- Bail early if nothing is enabled
-   if not (Config.ShowQuads or Config.ShowNametags or Config.ShowTracers or Config.ShowHealth) then
-        if quad then quad.Visible = false end
-        if nametag then nametag.Visible = false end
-        if tracer then tracer.Visible = false end
-        return
-    end
+  if not (Config.ShowQuads or Config.ShowNametags or Config.ShowTracers or Config.ShowHealth) then
+    if quad then quad.Visible = false end
+    if nametag then nametag.Visible = false end
+    if tracer then tracer.Visible = false end
+    if healthbar then healthbar.Visible = false end
+    return
+end
+
 
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then
