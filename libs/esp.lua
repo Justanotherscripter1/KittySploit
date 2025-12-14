@@ -16,6 +16,7 @@ local Config = {
     ShowQuads = true,
     ShowNametags = true,
     ShowTracers = true,
+    ShowHealth = true,
 }
 
 -- =========================
@@ -55,6 +56,17 @@ local function NewTracer(thickness, color)
     return trace
 end
 
+local function NewHealthBar(thickness)
+    local bar = Drawing.new("Line")
+    bar.Visible = false
+    bar.Color = Color3.fromRGB(0, 255, 0)
+    bar.Thickness = thickness
+    bar.Transparency = 1
+    return bar
+end
+
+
+
 -- =========================
 -- Character Utilities
 -- =========================
@@ -81,9 +93,9 @@ end
 -- =========================
 -- Quad / Nametag Update
 -- =========================
-local function UpdateDrawings(quad, nametag, tracer, character, screenCenter)
+local function UpdateDrawings(quad, nametag, tracer, healthbar, character, screenCenter)
     -- Bail early if nothing is enabled
-    if not (Config.ShowQuads or Config.ShowNametags or Config.ShowTracers) then
+   if not (Config.ShowQuads or Config.ShowNametags or Config.ShowTracers or Config.ShowHealth) then
         if quad then quad.Visible = false end
         if nametag then nametag.Visible = false end
         if tracer then tracer.Visible = false end
@@ -128,8 +140,41 @@ local function UpdateDrawings(quad, nametag, tracer, character, screenCenter)
                     maxY = math.max(maxY, screenPos.Y)
                 end
             end
+            
 
             if visible then
+
+                if Config.ShowHealth and healthbar then
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid and humanoid.MaxHealth > 0 then
+        local healthPercent = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
+
+        local barHeight = maxY - minY
+        local filledHeight = barHeight * healthPercent
+
+        local barX = minX - 6 -- distance from box
+        local barBottom = maxY
+        local barTop = barBottom - filledHeight
+
+        healthbar.From = Vector2.new(barX, barBottom)
+        healthbar.To = Vector2.new(barX, barTop)
+
+        -- Color shifts from red -> green
+        healthbar.Color = Color3.fromRGB(
+            255 * (1 - healthPercent),
+            255 * healthPercent,
+            0
+        )
+
+        healthbar.Visible = true
+    else
+        healthbar.Visible = false
+    end
+elseif healthbar then
+    healthbar.Visible = false
+end
+
+
                 if Config.ShowQuads and quad then
                     quad.PointA = Vector2.new(minX, minY)
                     quad.PointB = Vector2.new(maxX, minY)
@@ -153,6 +198,7 @@ local function UpdateDrawings(quad, nametag, tracer, character, screenCenter)
         else
             if quad then quad.Visible = false end
             if nametag then nametag.Visible = false end
+            if healthbar then healthbar.Visible = false end
         end
     end
 
@@ -191,6 +237,8 @@ end
 local quads = {}
 local nametags = {}
 local tracers = {}
+local healthbars = {}
+
 
 local function AddPlayer(player)
     if player == LocalPlayer then return end
@@ -198,7 +246,9 @@ local function AddPlayer(player)
     local quad = NewQuad(Config.QuadThickness, Config.QuadColor)
     local nametag = NewNametag(player.Name, Config.NametagColor, Config.NametagSize)
     local tracer = NewTracer(Config.TracerThickness, Config.TracerColor)
+    local healthbar = NewHealthBar(3)
 
+    healthbars[player] = healthbar
     quads[player] = quad
     nametags[player] = nametag
     tracers[player] = tracer
@@ -223,6 +273,11 @@ local function RemovePlayer(player)
         tracers[player]:Remove()
         tracers[player] = nil
     end
+    if healthbars[player] then
+    healthbars[player]:Remove()
+    healthbars[player] = nil
+end
+
 end
 
 for _, p in ipairs(Players:GetPlayers()) do
@@ -246,7 +301,7 @@ game:GetService("RunService").RenderStepped:Connect(function()
         local tracer = tracers[player]
 
         if char and char:FindFirstChild("HumanoidRootPart") then
-            UpdateDrawings(quad, tag, tracer, char, screenCenter)
+            UpdateDrawings(quad, tag, tracer, healthbars[player], char, screenCenter)
 
             if Config.ShowTracers and tracer then
                 local hrpPos = char.HumanoidRootPart.Position
