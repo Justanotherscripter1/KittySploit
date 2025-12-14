@@ -113,7 +113,7 @@ end
     end
 
     -- Bounding box for quads/nametags
-    if Config.ShowQuads or Config.ShowNametags then
+  if Config.ShowQuads or Config.ShowNametags or Config.ShowHealth then
         local bboxCF, bboxSize = GetCharacterBoundingBoxNoAccessories(character)
         if bboxCF then
             local halfX, halfY, halfZ = bboxSize.X/2, bboxSize.Y/2, bboxSize.Z/2
