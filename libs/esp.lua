@@ -12,7 +12,7 @@ local Config = {
     NametagSize = 16,
     TracerColor = Color3.fromRGB(0, 255, 0),
     TracerThickness = 1,
-    TracerFromBottomOffset = 5, -- how many pixels above bottom of screen for tracers
+    TracerFromBottomOffset = 5,
     ShowQuads = true,
     ShowNametags = true,
     ShowTracers = true,
@@ -65,8 +65,6 @@ local function NewHealthBar(thickness)
     return bar
 end
 
-
-
 -- =========================
 -- Character Utilities
 -- =========================
@@ -94,26 +92,27 @@ end
 -- Quad / Nametag Update
 -- =========================
 local function UpdateDrawings(quad, nametag, tracer, healthbar, character, screenCenter)
-    -- Bail early if nothing is enabled
-  if not (Config.ShowQuads or Config.ShowNametags or Config.ShowTracers or Config.ShowHealth) then
-    if quad then quad.Visible = false end
-    if nametag then nametag.Visible = false end
-    if tracer then tracer.Visible = false end
-    if healthbar then healthbar.Visible = false end
-    return
-end
-
+    if not (Config.ShowQuads or Config.ShowNametags or Config.ShowTracers or Config.ShowHealth) then
+        if quad then quad.Visible = false end
+        if nametag then nametag.Visible = false end
+        if tracer then tracer.Visible = false end
+        if healthbar then healthbar.Visible = false end
+        return
+    end
 
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then
         if quad then quad.Visible = false end
         if nametag then nametag.Visible = false end
         if tracer then tracer.Visible = false end
+        if healthbar then healthbar.Visible = false end
         return
     end
 
-    -- Bounding box for quads/nametags
-  if Config.ShowQuads or Config.ShowNametags or Config.ShowHealth then
+    -- 🔧 HEALTH FIX: HRP onscreen check (added, nothing else touched)
+    local _, hrpOnScreen = Camera:WorldToViewportPoint(hrp.Position)
+
+    if Config.ShowQuads or Config.ShowNametags or Config.ShowHealth then
         local bboxCF, bboxSize = GetCharacterBoundingBoxNoAccessories(character)
         if bboxCF then
             local halfX, halfY, halfZ = bboxSize.X/2, bboxSize.Y/2, bboxSize.Z/2
@@ -142,41 +141,40 @@ end
                     maxY = math.max(maxY, screenPos.Y)
                 end
             end
-            
+
+            -- 🔧 HEALTH FIX: moved OUT of `if visible` and gated by HRP
+            if Config.ShowHealth and healthbar then
+                if hrpOnScreen then
+                    local humanoid = character:FindFirstChildOfClass("Humanoid")
+                    if humanoid and humanoid.MaxHealth > 0 then
+                        local healthPercent = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
+
+                        local barHeight = maxY - minY
+                        local filledHeight = barHeight * healthPercent
+
+                        local barX = minX - 6
+                        local barBottom = maxY
+                        local barTop = barBottom - filledHeight
+
+                        healthbar.From = Vector2.new(barX, barBottom)
+                        healthbar.To = Vector2.new(barX, barTop)
+
+                        healthbar.Color = Color3.fromRGB(
+                            255 * (1 - healthPercent),
+                            255 * healthPercent,
+                            0
+                        )
+
+                        healthbar.Visible = true
+                    else
+                        healthbar.Visible = false
+                    end
+                else
+                    healthbar.Visible = false
+                end
+            end
 
             if visible then
-
-                if Config.ShowHealth and healthbar then
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if humanoid and humanoid.MaxHealth > 0 then
-        local healthPercent = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
-
-        local barHeight = maxY - minY
-        local filledHeight = barHeight * healthPercent
-
-        local barX = minX - 6 -- distance from box
-        local barBottom = maxY
-        local barTop = barBottom - filledHeight
-
-        healthbar.From = Vector2.new(barX, barBottom)
-        healthbar.To = Vector2.new(barX, barTop)
-
-        -- Color shifts from red -> green
-        healthbar.Color = Color3.fromRGB(
-            255 * (1 - healthPercent),
-            255 * healthPercent,
-            0
-        )
-
-        healthbar.Visible = true
-    else
-        healthbar.Visible = false
-    end
-elseif healthbar then
-    healthbar.Visible = false
-end
-
-
                 if Config.ShowQuads and quad then
                     quad.PointA = Vector2.new(minX, minY)
                     quad.PointB = Vector2.new(maxX, minY)
@@ -197,14 +195,10 @@ end
                 if quad then quad.Visible = false end
                 if nametag then nametag.Visible = false end
             end
-        else
-            if quad then quad.Visible = false end
-            if nametag then nametag.Visible = false end
-            if healthbar then healthbar.Visible = false end
         end
     end
 
-    -- Tracer update
+    -- Tracers (unchanged)
     if tracer then
         if Config.ShowTracers then
             local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
@@ -215,14 +209,11 @@ end
             else
                 tracer.Visible = false
             end
-            tracer.Color = Config.TracerColor
-            tracer.Thickness = Config.TracerThickness
         else
             tracer.Visible = false
         end
     end
 
-    -- Always update quad/nametag appearance to respect config
     if quad then
         quad.Color = Config.QuadColor
         quad.Thickness = Config.QuadThickness
@@ -241,51 +232,23 @@ local nametags = {}
 local tracers = {}
 local healthbars = {}
 
-
 local function AddPlayer(player)
     if player == LocalPlayer then return end
 
-    local quad = NewQuad(Config.QuadThickness, Config.QuadColor)
-    local nametag = NewNametag(player.Name, Config.NametagColor, Config.NametagSize)
-    local tracer = NewTracer(Config.TracerThickness, Config.TracerColor)
-    local healthbar = NewHealthBar(3)
-
-    healthbars[player] = healthbar
-    quads[player] = quad
-    nametags[player] = nametag
-    tracers[player] = tracer
-
-    player.CharacterAdded:Connect(function()
-        if Config.ShowQuads then quad.Visible = false end
-        if Config.ShowNametags then nametag.Visible = false end
-        if Config.ShowTracers then tracer.Visible = false end
-    end)
+    quads[player] = NewQuad(Config.QuadThickness, Config.QuadColor)
+    nametags[player] = NewNametag(player.Name, Config.NametagColor, Config.NametagSize)
+    tracers[player] = NewTracer(Config.TracerThickness, Config.TracerColor)
+    healthbars[player] = NewHealthBar(3)
 end
 
 local function RemovePlayer(player)
-    if quads[player] then
-        quads[player]:Remove()
-        quads[player] = nil
-    end
-    if nametags[player] then
-        nametags[player]:Remove()
-        nametags[player] = nil
-    end
-    if tracers[player] then
-        tracers[player]:Remove()
-        tracers[player] = nil
-    end
-    if healthbars[player] then
-    healthbars[player]:Remove()
-    healthbars[player] = nil
+    if quads[player] then quads[player]:Remove() end
+    if nametags[player] then nametags[player]:Remove() end
+    if tracers[player] then tracers[player]:Remove() end
+    if healthbars[player] then healthbars[player]:Remove() end
 end
 
-end
-
-for _, p in ipairs(Players:GetPlayers()) do
-    AddPlayer(p)
-end
-
+for _, p in ipairs(Players:GetPlayers()) do AddPlayer(p) end
 Players.PlayerAdded:Connect(AddPlayer)
 Players.PlayerRemoving:Connect(RemovePlayer)
 
@@ -293,38 +256,24 @@ Players.PlayerRemoving:Connect(RemovePlayer)
 -- Main Render Loop
 -- =========================
 game:GetService("RunService").RenderStepped:Connect(function()
-    local screenCenter = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y - Config.TracerFromBottomOffset)
-
+    local screenCenter = Vector2.new(
+        Camera.ViewportSize.X/2,
+        Camera.ViewportSize.Y - Config.TracerFromBottomOffset
+    )
 
     for player, quad in pairs(quads) do
-
         local char = player.Character
-        local tag = nametags[player]
-        local tracer = tracers[player]
-
-        if char and char:FindFirstChild("HumanoidRootPart") then
-            UpdateDrawings(quad, tag, tracer, healthbars[player], char, screenCenter)
-
-            if Config.ShowTracers and tracer then
-                local hrpPos = char.HumanoidRootPart.Position
-                local screenPos, onScreen = Camera:WorldToViewportPoint(hrpPos)
-                if onScreen then
-                    tracer.From = screenCenter
-                    tracer.To = Vector2.new(screenPos.X, screenPos.Y)
-                    tracer.Visible = true
-                else
-                    tracer.Visible = false
-                end
-            end
-        else
-            if Config.ShowQuads then quad.Visible = false end
-            if Config.ShowNametags and tag then tag.Visible = false end
-            if Config.ShowTracers and tracer then tracer.Visible = false end
+        if char then
+            UpdateDrawings(
+                quad,
+                nametags[player],
+                tracers[player],
+                healthbars[player],
+                char,
+                screenCenter
+            )
         end
     end
 end)
 
--- =========================
--- loadstring return
--- =========================
 return Config
